@@ -1,16 +1,10 @@
 #!/bin/sh
+
 random() {
-	tr </dev/urandom -dc A-Za-z0-9 | head -c5
-	echo
+    tr </dev/urandom -dc A-Za-z0-9 | head -c5
+    echo
 }
 
-array=(1 2 3 4 5 6 7 8 9 0 a b c d e f)
-gen64() {
-	ip64() {
-		echo "${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}${array[$RANDOM % 16]}"
-	}
-	echo "$1:$(ip64):$(ip64):$(ip64):$(ip64)"
-}
 install_3proxy() {
     echo "installing 3proxy"
     URL="https://raw.githubusercontent.com/ngochoaitn/multi_proxy_ipv6/main/3proxy-3proxy-0.8.6.tar.gz"
@@ -61,9 +55,28 @@ upload_proxy() {
     echo "Password: ${PASS}"
 
 }
+
+# Đọc danh sách IPv6 từ file proxy.ini
+read_ipv6_list() {
+    if [ ! -f proxy.ini ]; then
+        echo "proxy.ini not found!"
+        exit 1
+    fi
+    mapfile -t ipv6_list < proxy.ini
+    echo "Found ${#ipv6_list[@]} IPv6 addresses in proxy.ini"
+}
+
 gen_data() {
+    # Đọc danh sách IPv6 từ file proxy.ini
+    read_ipv6_list
+    
+    local i=0
     seq $FIRST_PORT $LAST_PORT | while read port; do
-        echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
+        echo "usr$(random)/pass$(random)/$IP4/$port/${ipv6_list[$i]}"
+        i=$((i+1))
+        if [ $i -ge ${#ipv6_list[@]} ]; then
+            i=0  # Quay lại đầu danh sách nếu hết IPv6
+        fi
     done
 }
 
@@ -78,6 +91,7 @@ gen_ifconfig() {
 $(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
 }
+
 echo "installing apps"
 yum -y install gcc net-tools bsdtar zip >/dev/null
 
@@ -93,8 +107,13 @@ IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 
 echo "Internal ip = ${IP4}. Exteranl sub for ip6 = ${IP6}"
 
-echo "How many proxy do you want to create? Example 500"
-read COUNT
+# Đọc số lượng IPv6 từ file proxy.ini
+read_ipv6_list
+
+# Sử dụng số lượng IPv6 để đặt giá trị COUNT
+COUNT=${#ipv6_list[@]}
+
+echo "Creating $COUNT proxies"
 
 FIRST_PORT=10000
 LAST_PORT=$(($FIRST_PORT + $COUNT))
