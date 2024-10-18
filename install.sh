@@ -3,8 +3,7 @@
 # Hàm để tải file ipv6.ini từ GitHub
 download_ipv6_ini() {
     echo "Downloading ipv6.ini from GitHub..."
-    wget -O ipv6.ini https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/ipv6.ini
-
+    wget -O ipv6.ini https://raw.githubusercontent.com/thien-tn/Create_proxy_ipv6/main/ipv6.ini
     if [ ! -f "./ipv6.ini" ]; then
         echo "Failed to download ipv6.ini from GitHub. Exiting."
         exit 1
