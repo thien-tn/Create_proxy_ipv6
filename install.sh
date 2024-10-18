@@ -1,10 +1,33 @@
 #!/bin/sh
 
+# Hàm để tải file proxy.ini từ GitHub
+download_proxy_ini() {
+    echo "Downloading proxy.ini from GitHub..."
+    wget -O proxy.ini https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/proxy.ini
+
+    if [ ! -f "./proxy.ini" ]; then
+        echo "Failed to download proxy.ini from GitHub. Exiting."
+        exit 1
+    fi
+}
+
+# Hàm để đọc danh sách IPv6 từ file proxy.ini
+read_ipv6_list() {
+    if [ ! -f "./proxy.ini" ]; then
+        echo "proxy.ini not found in $(pwd)! Exiting."
+        exit 1
+    fi
+    mapfile -t ipv6_list < proxy.ini
+    echo "Found ${#ipv6_list[@]} IPv6 addresses in proxy.ini"
+}
+
+# Hàm random chuỗi
 random() {
     tr </dev/urandom -dc A-Za-z0-9 | head -c5
     echo
 }
 
+# Hàm cài đặt 3proxy
 install_3proxy() {
     echo "installing 3proxy"
     URL="https://raw.githubusercontent.com/ngochoaitn/multi_proxy_ipv6/main/3proxy-3proxy-0.8.6.tar.gz"
@@ -19,6 +42,7 @@ install_3proxy() {
     cd $WORKDIR
 }
 
+# Hàm để tạo file cấu hình cho 3proxy
 gen_3proxy() {
     cat <<EOF
 daemon
@@ -39,12 +63,14 @@ $(awk -F "/" '{print "auth strong\n" \
 EOF
 }
 
+# Hàm để tạo proxy file cho người dùng
 gen_proxy_file_for_user() {
     cat >proxy.txt <<EOF
 $(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
 EOF
 }
 
+# Hàm để upload proxy file
 upload_proxy() {
     local PASS=$(random)
     zip --password $PASS proxy.zip proxy.txt
@@ -53,46 +79,31 @@ upload_proxy() {
     echo "Proxy is ready! Format IP:PORT:LOGIN:PASS"
     echo "Download zip archive from: ${URL}"
     echo "Password: ${PASS}"
-
 }
 
-# Đọc danh sách IPv6 từ file proxy.ini
-read_ipv6_list() {
-    if [ ! -f proxy.ini ]; then
-        echo "proxy.ini not found!"
-        exit 1
-    fi
-    mapfile -t ipv6_list < proxy.ini
-    echo "Found ${#ipv6_list[@]} IPv6 addresses in proxy.ini"
-}
-
+# Hàm để tạo dữ liệu proxy từ danh sách IPv6
 gen_data() {
-    # Đọc danh sách IPv6 từ file proxy.ini
-    read_ipv6_list
-    
-    local i=0
     seq $FIRST_PORT $LAST_PORT | while read port; do
-        echo "usr$(random)/pass$(random)/$IP4/$port/${ipv6_list[$i]}"
-        i=$((i+1))
-        if [ $i -ge ${#ipv6_list[@]} ]; then
-            i=0  # Quay lại đầu danh sách nếu hết IPv6
-        fi
+        echo "usr$(random)/pass$(random)/$IP4/$port/${ipv6_list[$(expr $port - $FIRST_PORT)]}"
     done
 }
 
+# Hàm để tạo iptables rule
 gen_iptables() {
     cat <<EOF
     $(awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 "  -m state --state NEW -j ACCEPT"}' ${WORKDATA}) 
 EOF
 }
 
+# Hàm để thiết lập IPv6 trên interface
 gen_ifconfig() {
     cat <<EOF
 $(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
 }
 
-echo "installing apps"
+# Bắt đầu thực hiện script
+echo "Installing apps"
 yum -y install gcc net-tools bsdtar zip >/dev/null
 
 install_3proxy
@@ -102,29 +113,34 @@ WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
 mkdir $WORKDIR && cd $_
 
+# Tải proxy.ini từ GitHub
+download_proxy_ini
+
+# Đọc danh sách IPv6 từ file proxy.ini
+read_ipv6_list
+
+# Lấy địa chỉ IP4
 IP4=$(curl -4 -s icanhazip.com)
 IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 
-echo "Internal ip = ${IP4}. Exteranl sub for ip6 = ${IP6}"
+echo "Internal IP = ${IP4}. External sub for IPv6 = ${IP6}"
 
-# Đọc số lượng IPv6 từ file proxy.ini
-read_ipv6_list
-
-# Sử dụng số lượng IPv6 để đặt giá trị COUNT
+# Thiết lập số lượng proxy bằng số IPv6 trong proxy.ini
 COUNT=${#ipv6_list[@]}
 
-echo "Creating $COUNT proxies"
-
 FIRST_PORT=10000
-LAST_PORT=$(($FIRST_PORT + $COUNT))
+LAST_PORT=$(($FIRST_PORT + $COUNT - 1))
 
+# Tạo dữ liệu proxy
 gen_data >$WORKDIR/data.txt
 gen_iptables >$WORKDIR/boot_iptables.sh
 gen_ifconfig >$WORKDIR/boot_ifconfig.sh
 chmod +x ${WORKDIR}/boot_*.sh /etc/rc.local
 
+# Tạo file cấu hình cho 3proxy
 gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
 
+# Thêm script khởi động vào rc.local
 cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
@@ -132,8 +148,11 @@ ulimit -n 10048
 service 3proxy start
 EOF
 
+# Khởi động proxy
 bash /etc/rc.local
 
+# Tạo proxy file cho người dùng
 gen_proxy_file_for_user
 
+# Upload proxy file
 upload_proxy
