@@ -1,24 +1,24 @@
 #!/bin/sh
 
-# Hàm để tải file proxy.ini từ GitHub
-download_proxy_ini() {
-    echo "Downloading proxy.ini from GitHub..."
-    wget -O proxy.ini https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/proxy.ini
+# Hàm để tải file ipv6.ini từ GitHub
+download_ipv6_ini() {
+    echo "Downloading ipv6.ini from GitHub..."
+    wget -O ipv6.ini https://raw.githubusercontent.com/USERNAME/REPOSITORY/main/ipv6.ini
 
-    if [ ! -f "./proxy.ini" ]; then
-        echo "Failed to download proxy.ini from GitHub. Exiting."
+    if [ ! -f "./ipv6.ini" ]; then
+        echo "Failed to download ipv6.ini from GitHub. Exiting."
         exit 1
     fi
 }
 
-# Hàm để đọc danh sách IPv6 từ file proxy.ini
+# Hàm để đọc danh sách IPv6 từ file ipv6.ini
 read_ipv6_list() {
-    if [ ! -f "./proxy.ini" ]; then
-        echo "proxy.ini not found in $(pwd)! Exiting."
+    if [ ! -f "./ipv6.ini" ]; then
+        echo "ipv6.ini not found in $(pwd)! Exiting."
         exit 1
     fi
-    mapfile -t ipv6_list < proxy.ini
-    echo "Found ${#ipv6_list[@]} IPv6 addresses in proxy.ini"
+    mapfile -t ipv6_list < ipv6.ini
+    echo "Found ${#ipv6_list[@]} IPv6 addresses in ipv6.ini"
 }
 
 # Hàm random chuỗi
@@ -113,10 +113,10 @@ WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
 mkdir $WORKDIR && cd $_
 
-# Tải proxy.ini từ GitHub
-download_proxy_ini
+# Tải ipv6.ini từ GitHub
+download_ipv6_ini
 
-# Đọc danh sách IPv6 từ file proxy.ini
+# Đọc danh sách IPv6 từ file ipv6.ini
 read_ipv6_list
 
 # Lấy địa chỉ IP4
@@ -125,7 +125,7 @@ IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 
 echo "Internal IP = ${IP4}. External sub for IPv6 = ${IP6}"
 
-# Thiết lập số lượng proxy bằng số IPv6 trong proxy.ini
+# Thiết lập số lượng proxy bằng số IPv6 trong ipv6.ini
 COUNT=${#ipv6_list[@]}
 
 FIRST_PORT=10000
