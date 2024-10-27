@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Hàm để tải file ipv6.ini từ GitHub
 download_ipv6_ini() {
@@ -26,16 +26,17 @@ random() {
     echo
 }
 
-# Hàm cài đặt 3proxy
+# Hàm cài đặt 3proxy với phiên bản mới
 install_3proxy() {
-    echo "installing 3proxy"
-    URL="https://raw.githubusercontent.com/thien-tn/Create_proxy_ipv6/main/3proxy-3proxy-0.8.6.tar.gz"
-    wget -qO- $URL | bsdtar -xvf-
-    cd 3proxy-3proxy-0.8.6
+    echo "Installing 3proxy version 0.9.4"
+    VERSION="0.9.4"
+    wget --no-check-certificate -O 3proxy-${VERSION}.tar.gz https://github.com/z3APA3A/3proxy/archive/${VERSION}.tar.gz
+    tar xzf 3proxy-${VERSION}.tar.gz
+    cd 3proxy-${VERSION}
     make -f Makefile.Linux
-    mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
-    cp src/3proxy /usr/local/etc/3proxy/bin/
-    cp ./scripts/rc.d/proxy.sh /etc/init.d/3proxy
+    mkdir -p /etc/3proxy/{bin,logs,stat}
+    mv bin/3proxy /etc/3proxy/bin/
+    cp scripts/3proxy.service /etc/init.d/3proxy
     chmod +x /etc/init.d/3proxy
     chkconfig 3proxy on
     cd $WORKDIR
@@ -45,7 +46,7 @@ install_3proxy() {
 gen_3proxy() {
     cat <<EOF
 daemon
-maxconn 1000
+maxconn 2000
 nscache 65536
 timeouts 1 5 30 60 180 1800 15 60
 setgid 65535
@@ -101,16 +102,22 @@ $(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
 }
 
+# Kiểm tra quyền root
+if [[ "$EUID" -ne 0 ]]; then
+    echo "This script must be run as root"
+    exit 1
+fi
+
 # Bắt đầu thực hiện script
-echo "Installing apps"
-yum -y install gcc net-tools bsdtar zip >/dev/null
+echo "Installing required packages..."
+yum -y install gcc net-tools bsdtar zip make git wget curl >/dev/null
 
 install_3proxy
 
 echo "working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
-mkdir $WORKDIR && cd $_
+mkdir -p $WORKDIR && cd $_
 
 # Tải ipv6.ini từ GitHub
 download_ipv6_ini
@@ -118,7 +125,7 @@ download_ipv6_ini
 # Đọc danh sách IPv6 từ file ipv6.ini
 read_ipv6_list
 
-# Lấy địa chỉ IP4
+# Lấy địa chỉ IP4 và IP6
 IP4=$(curl -4 -s icanhazip.com)
 IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
 
@@ -130,21 +137,24 @@ COUNT=${#ipv6_list[@]}
 FIRST_PORT=10000
 LAST_PORT=$(($FIRST_PORT + $COUNT - 1))
 
-# Tạo dữ liệu proxy
+# Tạo dữ liệu proxy và script khởi động
 gen_data >$WORKDIR/data.txt
 gen_iptables >$WORKDIR/boot_iptables.sh
 gen_ifconfig >$WORKDIR/boot_ifconfig.sh
 chmod +x ${WORKDIR}/boot_*.sh /etc/rc.local
 
 # Tạo file cấu hình cho 3proxy
-gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
+gen_3proxy >/etc/3proxy/3proxy.cfg
+
+# Tạo thư mục logs
+mkdir -p /var/log/3proxy/
 
 # Thêm script khởi động vào rc.local
 cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
-ulimit -n 10048
-service 3proxy start
+ulimit -n 65535
+/etc/3proxy/bin/3proxy /etc/3proxy/3proxy.cfg
 EOF
 
 # Khởi động proxy
