@@ -26,6 +26,37 @@ random() {
     echo
 }
 
+# Hàm để phát hiện hệ điều hành
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        # freedesktop.org and systemd
+        . /etc/os-release
+        OS=$NAME
+        VER=$VERSION_ID
+    elif type lsb_release >/dev/null 2>&1; then
+        # linuxbase.org
+        OS=$(lsb_release -si)
+        VER=$(lsb_release -sr)
+    elif [ -f /etc/lsb-release ]; then
+        # Một số bản phân phối sử dụng /etc/lsb-release
+        . /etc/lsb-release
+        OS=$DISTRIB_ID
+        VER=$DISTRIB_RELEASE
+    elif [ -f /etc/debian_version ]; then
+        # Debian/Ubuntu/etc.
+        OS=Debian
+        VER=$(cat /etc/debian_version)
+    else
+        # Phương pháp sao lưu
+        OS=$(uname -s)
+        VER=$(uname -r)
+    fi
+
+    # Chuyển đổi sang chữ thường để dễ so sánh
+    OS=$(echo "$OS" | tr '[:upper:]' '[:lower:]')
+    echo "Detected OS: $OS, Version: $VER"
+}
+
 # Hàm cài đặt 3proxy với phiên bản mới
 install_3proxy() {
     echo "Installing 3proxy version 0.9.4"
@@ -36,9 +67,17 @@ install_3proxy() {
     make -f Makefile.Linux
     mkdir -p /etc/3proxy/{bin,logs,stat}
     mv bin/3proxy /etc/3proxy/bin/
-    cp scripts/3proxy.service /etc/init.d/3proxy
-    chmod +x /etc/init.d/3proxy
-    chkconfig 3proxy on
+    
+    # Thiết lập service dựa vào hệ điều hành
+    if [[ "$OS" == *"ubuntu"* ]] || [[ "$OS" == *"debian"* ]]; then
+        cp scripts/3proxy.service /lib/systemd/system/
+        systemctl daemon-reload
+        systemctl enable 3proxy
+    else
+        cp scripts/3proxy.service /etc/init.d/3proxy
+        chkconfig 3proxy on
+    fi
+    
     cd $WORKDIR
 }
 
@@ -108,9 +147,17 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
+# Phát hiện hệ điều hành
+detect_os
+
 # Bắt đầu thực hiện script
 echo "Installing required packages..."
-yum -y install gcc net-tools bsdtar zip make git wget curl >/dev/null
+if [[ "$OS" == *"ubuntu"* ]] || [[ "$OS" == *"debian"* ]]; then
+    apt-get update
+    apt-get -y install gcc net-tools bsdtar zip make git wget curl >/dev/null
+else
+    yum -y install gcc net-tools bsdtar zip make git wget curl >/dev/null
+fi
 
 install_3proxy
 
@@ -150,6 +197,36 @@ gen_3proxy >/etc/3proxy/3proxy.cfg
 mkdir -p /var/log/3proxy/
 
 # Thêm script khởi động vào rc.local
+if [[ "$OS" == *"ubuntu"* ]] || [[ "$OS" == *"debian"* ]]; then
+    # Đảm bảo rc.local tồn tại và có quyền thực thi trên Ubuntu
+    if [ ! -f /etc/rc.local ]; then
+        echo '#!/bin/sh -e' > /etc/rc.local
+        echo 'exit 0' >> /etc/rc.local
+        chmod +x /etc/rc.local
+        
+        # Tạo service cho rc.local nếu chưa có
+        if [ ! -f /lib/systemd/system/rc-local.service ]; then
+            cat > /lib/systemd/system/rc-local.service <<EOF
+[Unit]
+Description=/etc/rc.local Compatibility
+ConditionPathExists=/etc/rc.local
+
+[Service]
+Type=forking
+ExecStart=/etc/rc.local start
+TimeoutSec=0
+StandardOutput=tty
+RemainAfterExit=yes
+SysVStartPriority=99
+
+[Install]
+WantedBy=multi-user.target
+EOF
+            systemctl enable rc-local
+        fi
+    fi
+fi
+
 cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
